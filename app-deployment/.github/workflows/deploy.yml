@@ -1,0 +1,80 @@
+name: Build & Deploy Vite to EC2
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Archive artifact
+        run: |
+          RELEASE_DIR="release-$(date +%Y%m%d%H%M%S)"
+          mkdir -p "$RELEASE_DIR"
+          cp -r dist/* "$RELEASE_DIR"/
+          tar -czf "$RELEASE_DIR".tar.gz "$RELEASE_DIR"
+          echo "RELEASE_TAR=$RELEASE_DIR.tar.gz" >> $GITHUB_ENV
+          echo "RELEASE_DIR=$RELEASE_DIR" >> $GITHUB_ENV
+
+      - name: Copy artifact to EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_PORT: ${{ secrets.EC2_PORT }}
+        run: |
+          echo "${{ secrets.EC2_SSH_KEY }}" > private_key
+          chmod 600 private_key
+          scp -o StrictHostKeyChecking=no -i private_key -P ${EC2_PORT:-22} "$RELEASE_TAR" "$EC2_USER@$EC2_HOST:/tmp/"
+
+      - name: Deploy on EC2 (atomic symlink swap)
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_PATH: ${{ secrets.EC2_PATH }}
+          EC2_PORT: ${{ secrets.EC2_PORT }}
+        run: |
+          echo "${{ secrets.EC2_SSH_KEY }}" > private_key
+          chmod 600 private_key
+
+          ssh -o StrictHostKeyChecking=no -i private_key -p ${EC2_PORT:-22} "$EC2_USER@$EC2_HOST" bash -s << 'EOSSH'
+          set -euo pipefail
+
+          APP_DIR="${EC2_PATH:-/var/www/yourapp}"
+          cd "$APP_DIR"
+
+          # 1) Unpack release
+          LATEST_TAR=$(ls -t /tmp/release-*.tar.gz | head -n1)
+          tar -xzf "$LATEST_TAR" -C "$APP_DIR/releases"
+
+          # Extracted folder name (release-YYYYmmddHHMMSS)
+          NEW_RELEASE=$(basename "$LATEST_TAR" .tar.gz)
+          # Ensure correct permissions
+          chown -R www-data:www-data "$APP_DIR/releases/$NEW_RELEASE"
+
+          # 2) Atomic swap
+          ln -sfn "$APP_DIR/releases/$NEW_RELEASE" "$APP_DIR/current"
+
+          # 3) (Optional) Clean up old releases, keep last 5
+          ls -dt "$APP_DIR"/releases/release-* | tail -n +6 | xargs -r rm -rf
+
+          # 4) Nginx reload not strictly required for static, but safe if headers change
+          sudo nginx -t && sudo systemctl reload nginx
+          EOSSH
