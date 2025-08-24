@@ -71,7 +71,7 @@ jobs:
           # Extracted name of folder  (release-YYYYmmddHHMMSS)
           NEW_RELEASE=$(basename "$LATEST_TAR" .tar.gz)
           # Ensure correct permissions
-          chown -R www-data:www-data "$APP_DIR/releases/$NEW_RELEASE"
+          sudo chown -R www-data:www-data "$APP_DIR/releases/$NEW_RELEASE"
 
           # 2) Atomic swap
           ln -sfn "$APP_DIR/releases/$NEW_RELEASE" "$APP_DIR/current"
