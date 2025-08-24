@@ -10,8 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: app-deployment
 
+        working-directory: app-deployment
 
     steps:
       - name: Checkout
@@ -64,11 +64,11 @@ jobs:
           APP_DIR="${EC2_PATH:-/var/www/yourapp}"
           cd "$APP_DIR"
 
-          # 1) Unpack release
+          # 1) Unpack release 
           LATEST_TAR=$(ls -t /tmp/release-*.tar.gz | head -n1)
           tar -xzf "$LATEST_TAR" -C "$APP_DIR/releases"
 
-          # Extracted folder name (release-YYYYmmddHHMMSS)
+          # Extracted name of folder  (release-YYYYmmddHHMMSS)
           NEW_RELEASE=$(basename "$LATEST_TAR" .tar.gz)
           # Ensure correct permissions
           chown -R www-data:www-data "$APP_DIR/releases/$NEW_RELEASE"
